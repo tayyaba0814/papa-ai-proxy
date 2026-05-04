@@ -1,8 +1,15 @@
 {
   "version": 2,
-  "functions": {
-    "api/claude.js": {
-      "maxDuration": 30
+  "builds": [
+    {
+      "src": "api/claude.js",
+      "use": "@vercel/node"
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/api/claude",
+      "dest": "/api/claude.js"
+    }
+  ]
 }
