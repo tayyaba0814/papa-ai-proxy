@@ -1,39 +1,48 @@
-const https = require('https');
-
 module.exports = (req, res) => {
+  // CORS - must be set before anything else
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Max-Age', '86400');
 
+  // Handle OPTIONS preflight immediately
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.status(204).end();
     return;
   }
 
+  // Only allow POST
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  // Parse body
   let body = '';
-  req.on('data', chunk => { body += chunk; });
+  req.on('data', chunk => { body += chunk.toString(); });
   req.on('end', () => {
     let prompt, max_tokens;
     try {
       const parsed = JSON.parse(body);
       prompt = parsed.prompt;
       max_tokens = parsed.max_tokens || 1200;
-    } catch(e) {
-      res.status(400).json({ error: 'Invalid JSON' });
+    } catch (e) {
+      res.status(400).json({ error: 'Invalid JSON body' });
       return;
     }
 
     if (!prompt) {
-      res.status(400).json({ error: 'No prompt' });
+      res.status(400).json({ error: 'Missing prompt' });
       return;
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      res.status(500).json({ error: 'No API key configured' });
+      res.status(500).json({ error: 'Server configuration error' });
       return;
     }
 
+    const https = require('https');
     const payload = JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: max_tokens,
@@ -52,22 +61,26 @@ module.exports = (req, res) => {
       }
     };
 
-    const apiReq = https.request(options, apiRes => {
+    const apiReq = require('https').request(options, apiRes => {
       let data = '';
       apiRes.on('data', chunk => { data += chunk; });
       apiRes.on('end', () => {
         try {
           const parsed = JSON.parse(data);
+          if (!parsed.content) {
+            res.status(500).json({ error: 'Bad response from AI', raw: data.substring(0, 200) });
+            return;
+          }
           const text = parsed.content.map(c => c.text || '').join('');
-          res.status(200).json({ text });
-        } catch(e) {
-          res.status(500).json({ error: 'Parse error' });
+          res.status(200).json({ text: text });
+        } catch (e) {
+          res.status(500).json({ error: 'Parse failed: ' + e.message });
         }
       });
     });
 
     apiReq.on('error', err => {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Request failed: ' + err.message });
     });
 
     apiReq.write(payload);
